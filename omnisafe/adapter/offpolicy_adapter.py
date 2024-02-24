@@ -105,7 +105,7 @@ class OffPolicyAdapter(OnlineAdapter):
     def rollout(  # pylint: disable=too-many-locals
         self,
         rollout_step: int,
-        agent: ConstraintActorQCritic,
+        agent,
         buffer: VectorOffPolicyBuffer,
         logger: Logger,
         use_rand_action: bool,
