@@ -1,18 +1,4 @@
-# Copyright 2023 OmniSafe Team. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-"""Implementation of the Deep Deterministic Policy Gradient algorithm."""
+
 
 from __future__ import annotations
 
@@ -26,10 +12,10 @@ import numpy as np
 from omnisafe.adapter import OffPolicyAdapter
 from omnisafe.algorithms import registry
 from omnisafe.algorithms.base_algo import BaseAlgo
+from omnisafe.common.Optimizer import New_optim
 from omnisafe.common.buffer import VectorOffPolicyBuffer
 from omnisafe.common.logger import Logger
 from omnisafe.models.actor_critic.constraint_actor_q_critic import ConstraintActorQCritic
-from omnisafe.models.actor_critic.actor_q_critic import ActorQCritic
 from omnisafe.common.safety_projection import C_Critic
 
 
@@ -42,23 +28,7 @@ class SDDPG(BaseAlgo):
     _epoch: int
 
     def _init_env(self) -> None:
-        """Initialize the environment.
 
-        OmniSafe uses :class:`omnisafe.adapter.OffPolicyAdapter` to adapt the environment to this
-        algorithm.
-
-        User can customize the environment by inheriting this method.
-
-        Examples:
-            >>> def _init_env(self) -> None:
-            ...     self._env = CustomAdapter()
-
-        Raises:
-            AssertionError: If the number of steps per epoch is not divisible by the number of
-                environments.
-            AssertionError: If the total number of steps is not divisible by the number of steps per
-                epoch.
-        """
         self._env: OffPolicyAdapter = OffPolicyAdapter(
             self._env_id,
             self._cfgs.train_cfgs.vector_env_nums,
@@ -88,38 +58,19 @@ class SDDPG(BaseAlgo):
         self._update_count: int = 0
 
     def _init_model(self) -> None:
-        """Initialize the model.
 
-        OmniSafe uses :class:`omnisafe.models.actor_critic.constraint_actor_q_critic.ConstraintActorQCritic`
-        as the default model.
+        self._cfgs.model_cfgs.critic['num_critics'] = 1
 
-        User can customize the model by inheriting this method.
-
-        Examples:
-            >>> def _init_model(self) -> None:
-            ...     self._actor_critic = CustomActorQCritic()
-        """
-        self._cfgs.model_cfgs.critic['num_critics'] = 2
-
-        self._constr_critic: ConstraintActorQCritic = ConstraintActorQCritic(
+        self._actor_critic = ConstraintActorQCritic(
             obs_space=self._env.observation_space,
             act_space=self._env.action_space,
             model_cfgs=self._cfgs.model_cfgs,
             epochs=self._epochs,
-        ).to(self._device)
-        self._actor_critic=ActorQCritic()
+        )
+
 
     def _init(self) -> None:
-        """The initialization of the algorithm.
 
-        User can define the initialization of the algorithm by inheriting this method.
-
-        Examples:
-            >>> def _init(self) -> None:
-            ...     super()._init()
-            ...     self._buffer = CustomBuffer()
-            ...     self._model = CustomModel()
-        """
         self._buf: VectorOffPolicyBuffer = VectorOffPolicyBuffer(
             obs_space=self._env.observation_space,
             act_space=self._env.action_space,
@@ -128,54 +79,10 @@ class SDDPG(BaseAlgo):
             num_envs=self._cfgs.train_cfgs.vector_env_nums,
             device=self._device,
         )
+        self._actor_critic.actor_optimizer=New_optim(self._actor_critic.actor.parameters(), lr=0.0003)
 
     def _init_log(self) -> None:
-        """Log info about epoch.
 
-        +-------------------------+----------------------------------------------------------------------+
-        | Things to log           | Description                                                          |
-        +=========================+======================================================================+
-        | Train/Epoch             | Current epoch.                                                       |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/EpCost          | Average cost of the epoch.                                           |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/EpRet           | Average return of the epoch.                                         |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/EpLen           | Average length of the epoch.                                         |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/TestEpCost      | Average cost of the evaluate epoch.                                  |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/TestEpRet       | Average return of the evaluate epoch.                                |
-        +-------------------------+----------------------------------------------------------------------+
-        | Metrics/TestEpLen       | Average length of the evaluate epoch.                                |
-        +-------------------------+----------------------------------------------------------------------+
-        | Value/reward_critic     | Average value in :meth:`rollout` (from critic network) of the epoch. |
-        +-------------------------+----------------------------------------------------------------------+
-        | Values/cost_critic      | Average cost in :meth:`rollout` (from critic network) of the epoch.  |
-        +-------------------------+----------------------------------------------------------------------+
-        | Loss/Loss_pi            | Loss of the policy network.                                          |
-        +-------------------------+----------------------------------------------------------------------+
-        | Loss/Loss_reward_critic | Loss of the reward critic.                                           |
-        +-------------------------+----------------------------------------------------------------------+
-        | Loss/Loss_cost_critic   | Loss of the cost critic network.                                     |
-        +-------------------------+----------------------------------------------------------------------+
-        | Train/LR                | Learning rate of the policy network.                                 |
-        +-------------------------+----------------------------------------------------------------------+
-        | Misc/Seed               | Seed of the experiment.                                              |
-        +-------------------------+----------------------------------------------------------------------+
-        | Misc/TotalEnvSteps      | Total steps of the experiment.                                       |
-        +-------------------------+----------------------------------------------------------------------+
-        | Time/Total              | Total time.                                                          |
-        +-------------------------+----------------------------------------------------------------------+
-        | Time/Rollout            | Rollout time.                                                        |
-        +-------------------------+----------------------------------------------------------------------+
-        | Time/Update             | Update time.                                                         |
-        +-------------------------+----------------------------------------------------------------------+
-        | Time/Evaluate           | Evaluate time.                                                       |
-        +-------------------------+----------------------------------------------------------------------+
-        | FPS                     | Frames per second of the epoch.                                      |
-        +-------------------------+----------------------------------------------------------------------+
-        """
         self._logger: Logger = Logger(
             output_dir=self._cfgs.logger_cfgs.log_dir,
             exp_name=self._cfgs.exp_name,
@@ -228,19 +135,7 @@ class SDDPG(BaseAlgo):
         self._logger.register_key('Time/FPS')
 
     def learn(self) -> tuple[float, float, float]:
-        """This is main function for algorithm update.
 
-        It is divided into the following steps:
-
-        - :meth:`rollout`: collect interactive data from environment.
-        - :meth:`update`: perform actor/critic updates.
-        - :meth:`log`: epoch/update information for visualization and terminal log print.
-
-        Returns:
-            ep_ret: average episode return in final epoch.
-            ep_cost: average episode cost in final epoch.
-            ep_len: average episode length in final epoch.
-        """
         self._logger.log('INFO: Start training')
         start_time = time.time()
         step = 0
@@ -326,37 +221,6 @@ class SDDPG(BaseAlgo):
 
 
     def _update(self) -> None:
-        """Update actor, critic.
-
-        -  Get the ``data`` from buffer
-
-        .. note::
-
-            +----------+---------------------------------------+
-            | obs      | ``observaion`` stored in buffer.      |
-            +==========+=======================================+
-            | act      | ``action`` stored in buffer.          |
-            +----------+---------------------------------------+
-            | reward   | ``reward`` stored in buffer.          |
-            +----------+---------------------------------------+
-            | cost     | ``cost`` stored in buffer.            |
-            +----------+---------------------------------------+
-            | next_obs | ``next observaion`` stored in buffer. |
-            +----------+---------------------------------------+
-            | done     | ``terminated`` stored in buffer.      |
-            +----------+---------------------------------------+
-
-        -  Update value net by :meth:`_update_reward_critic`.
-        -  Update cost net by :meth:`_update_cost_critic`.
-        -  Update policy net by :meth:`_update_actor`.
-
-        The basic process of each update is as follows:
-
-        #. Get the mini-batch data from buffer.
-        #. Get the loss of network.
-        #. Update the network by loss.
-        #. Repeat steps 2, 3 until the ``update_iters`` times.
-        """
         for _ in range(self._cfgs.algo_cfgs.update_iters):
             data = self._buf.sample_batch()
             self._update_count += 1
@@ -368,16 +232,20 @@ class SDDPG(BaseAlgo):
                 data['done'],
                 data['next_obs'],
             )
-            ################需要进行safe projection
-            act=C_Critic.safety_correction(obs,act)
+
+            if self._update_count>2:
+                act = C_Critic.safety_correction(obs,act)
+
+
 
             self._update_reward_critic(obs, act, reward, done, next_obs)
             if self._cfgs.algo_cfgs.use_cost:
                 self._update_cost_critic(obs, act, cost, done, next_obs)
 
             if self._update_count % self._cfgs.algo_cfgs.policy_delay == 0:
-                self._update_actor(obs)
+                self._update_actor(obs,act)
                 self._actor_critic.polyak_update(self._cfgs.algo_cfgs.polyak)
+
 
     def _update_reward_critic(
         self,
@@ -387,19 +255,7 @@ class SDDPG(BaseAlgo):
         done: torch.Tensor,
         next_obs: torch.Tensor,
     ) -> None:
-        """Update reward critic.
 
-        - Get the TD loss of reward critic.
-        - Update critic network by loss.
-        - Log useful information.
-
-        Args:
-            obs (torch.Tensor): The ``observation`` sampled from buffer.
-            action (torch.Tensor): The ``action`` sampled from buffer.
-            reward (torch.Tensor): The ``reward`` sampled from buffer.
-            done (torch.Tensor): The ``terminated`` sampled from buffer.
-            next_obs (torch.Tensor): The ``next observation`` sampled from buffer.
-        """
         with torch.no_grad():
             next_action = self._actor_critic.actor.predict(next_obs, deterministic=True)
             next_q_value_r = self._actor_critic.target_reward_critic(next_obs, next_action)[0]
@@ -434,19 +290,7 @@ class SDDPG(BaseAlgo):
         done: torch.Tensor,
         next_obs: torch.Tensor,
     ) -> None:
-        """Update cost critic.
 
-        - Get the TD loss of cost critic.
-        - Update critic network by loss.
-        - Log useful information.
-
-        Args:
-            obs (torch.Tensor): The ``observation`` sampled from buffer.
-            action (torch.Tensor): The ``action`` sampled from buffer.
-            cost (torch.Tensor): The ``cost`` sampled from buffer.
-            done (torch.Tensor): The ``terminated`` sampled from buffer.
-            next_obs (torch.Tensor): The ``next observation`` sampled from buffer.
-        """
         with torch.no_grad():
             next_action = self._actor_critic.actor.predict(next_obs, deterministic=True)
             next_q_value_c = self._actor_critic.target_cost_critic(next_obs, next_action)[0]
@@ -478,7 +322,8 @@ class SDDPG(BaseAlgo):
 
     def _update_actor(
         self,
-        obs
+        obs,
+        act
     ):
         """Update actor.
 
@@ -487,7 +332,7 @@ class SDDPG(BaseAlgo):
         - Log useful information.
         """
 
-        loss = self._loss_pi(obs)
+        loss, inner= self._loss_pi(obs,act)
         self._actor_critic.actor_optimizer.zero_grad()
         loss.backward()
         if self._cfgs.algo_cfgs.max_grad_norm:
@@ -495,7 +340,7 @@ class SDDPG(BaseAlgo):
                 self._actor_critic.actor.parameters(),
                 self._cfgs.algo_cfgs.max_grad_norm,
             )
-        self._actor_critic.actor_optimizer.step()
+        self._actor_critic.actor_optimizer.step(inner=inner)
         self._logger.store(
             {
                 'Loss/Loss_pi': loss.mean().item(),
@@ -503,9 +348,6 @@ class SDDPG(BaseAlgo):
         )
 
     def auto_grad(self,objective,net,to_numpy=True):
-        """
-        Get the gradient of the objective with respect to the parameters of the network
-        """
         grad = torch.autograd.grad(objective,net)
         if to_numpy:
             return torch.cat([val.flatten() for val in grad], axis=0).detach().cpu().numpy()
@@ -516,11 +358,11 @@ class SDDPG(BaseAlgo):
 
         jacob = self.auto_grad(objective,net,to_numpy=False)
 
-        return self.auto_grad(torch.dot(jacob, x), to_numpy=True)
+        return self.auto_grad(torch.dot(jacob, x),net, to_numpy=True)
     def conjugate_gradient(self,Ax, b, cg_iters=100):
         EPS=1e-8
         x = np.zeros_like(b)
-        r = b.copy()  # Note: should be 'b - Ax', but for x=0, Ax=0. Change if doing warm start.
+        r = b.copy()
         p = r.copy()
         r_dot_old = np.dot(r, r)
         for _ in range(cg_iters):
@@ -539,35 +381,36 @@ class SDDPG(BaseAlgo):
 
     def _loss_pi(
         self,
-        obs: torch.Tensor,
-    ) -> torch.Tensor:
+        obs,
+        act,
+    ) :
         d0=100
         EPS=1e-8
 
         action = self._actor_critic.actor.predict(obs, deterministic=True)
         Q_d = self._actor_critic.cost_critic(obs, action)[0]
         Q = self._actor_critic.reward_critic(obs,action)[0]
-        grad_Q_d=C_Critic.discount_cumsum(self.auto_grad(self._actor_critic.actor.log_prob(action),Q_d*self._actor_critic.actor.log_prob(action)),self.self._cfgs.algo_cfgs.gamma)
-        grad_Q=C_Critic.discount_cumsum(self.auto_grad(self._actor_critic.actor.log_prob(action),Q*self._actor_critic.actor.log_prob(action)),self.self._cfgs.algo_cfgs.gamma)
+        pi=self._actor_critic.actor(obs)
+        logp=self._actor_critic.actor.log_prob(act)
+        grad_Q_d=C_Critic.discount_cumsum(self.auto_grad(Q_d*logp,pi),self.self._cfgs.algo_cfgs.gamma)
+        grad_Q=C_Critic.discount_cumsum(self.auto_grad(Q*logp,pi),self.self._cfgs.algo_cfgs.gamma)
 
-        distribution = self._actor_critic.actor(obs)
+
         epislon = (1 - self._cfgs.algo_cfgs.gamma)(d0 - Q_d)
         beta=self._cfgs.algo_cfgs.entropy_coef
-        entropy = distribution.entropy().mean().item()
+        entropy = pi.entropy().mean().item()
 
-        # SafeLayer policy update core impelmentation
 
         Hx = lambda x: self.auto_hession_x(entropy, self._actor_critic.actor.parameters(), torch.FloatTensor(x))
         x_hat = self.conjugate_gradient(Hx, grad_Q_d)
 
         s = grad_Q_d.T @ x_hat
         lambda_star = (-beta*epislon-grad_Q.T@x_hat)/(s+EPS)
-        pi = torch.exp(self._actor_critic.actor.log_prob(action))
-        inner = self.auto_grad(Q,action)+lambda_star*self.auto_grad(Q_d,action)
-        loss=(pi*inner).mean().item()
+        inner = (self.auto_grad(Q,action)+lambda_star*self.auto_grad(Q_d,action))
+        loss=torch.exp(self._actor_critic.actor(obs))
 
 
-        return loss
+        return loss,inner
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""

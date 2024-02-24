@@ -17,8 +17,8 @@
 from __future__ import annotations
 
 import torch
-from torch.distributions import Distribution
-
+import torch.nn as nn
+from torch.distributions import Distribution, Normal
 from omnisafe.models.base import Actor
 from omnisafe.typing import Activation, InitFunction, OmnisafeSpace
 from omnisafe.utils.model import build_mlp_network
@@ -41,6 +41,7 @@ class MLPActor(Actor):
             ``'kaiming_uniform'``.
     """
 
+
     def __init__(
         self,
         obs_space: OmnisafeSpace,
@@ -60,6 +61,13 @@ class MLPActor(Actor):
             weight_initialization_mode=weight_initialization_mode,
         )
         self._noise: float = 0.1
+        self.mean: nn.Module = build_mlp_network(
+            sizes=[self._obs_dim, *self._hidden_sizes, self._act_dim],
+            activation=activation,
+            weight_initialization_mode=weight_initialization_mode,
+        )
+        self.log_std: nn.Parameter = nn.Parameter(torch.zeros(self._act_dim), requires_grad=True)
+        _current_dist: Normal
 
     def predict(
         self,
@@ -96,7 +104,9 @@ class MLPActor(Actor):
         self._noise = noise
 
     def _distribution(self, obs: torch.Tensor) -> Distribution:
-        raise NotImplementedError
+        mean = self.mean(obs)
+        std = torch.exp(self.log_std)
+        return Normal(mean, std)
 
     def forward(self, obs: torch.Tensor) -> Distribution:
         """Forward method implementation.
@@ -118,7 +128,7 @@ class MLPActor(Actor):
         Raises:
             NotImplementedError: The method is not implemented.
         """
-        raise NotImplementedError
+        return self._current_dist.log_prob(act).sum(axis=-1)
 
     @property
     def std(self) -> float:

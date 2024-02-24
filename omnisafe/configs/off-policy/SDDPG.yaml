@@ -27,13 +27,13 @@ defaults:
     # number of parallel agent, similar to a3c
     parallel: 1
     # total number of steps to train
-    total_steps: 2000
+    total_steps: 1000000
     # number of evaluate episodes
     eval_episodes: 1
   # algorithm configurations
   algo_cfgs:
     # number of steps to update the policy
-    steps_per_epoch: 200
+    steps_per_epoch: 2000
     # number of steps per sample
     update_cycle: 1
     # number of iterations to update the policy
@@ -59,7 +59,7 @@ defaults:
     # The discount factor of GAE
     gamma: 0.99
     # Actor perdorm random action before `start_learning_steps` steps
-    start_learning_steps: 25000
+    start_learning_steps: 1000
     # The delay step of policy update
     policy_delay: 1
     # Whether to use the exploration noise

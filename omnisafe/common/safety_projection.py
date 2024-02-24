@@ -33,11 +33,11 @@ class C_Critic(nn.Module):
         super().__init__()
         self.c_net = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
 
-    # def forward(self, obs, act):
-    def forward(self, obs_act):
-        return torch.squeeze(self.c_net(obs_act), -1)  # Critical to ensure v has right shape.
 
-    # Get the corrected action
+    def forward(self, obs_act):
+        return torch.squeeze(self.c_net(obs_act), -1)
+
+    # Get the corrected action, this may cause some problems in discrete observation space
     def safety_correction(self, obs, act, delta=0.):
         obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
         act = torch.as_tensor(act, dtype=torch.float32).to(self.device)
@@ -56,12 +56,12 @@ class C_Critic(nn.Module):
             G = np.asarray(G, dtype=np.double)
             act_np = act.detach().cpu().numpy()
             act_base = act_np * 0
-            gamma = 0.0
+            gamma = 0.01
             epsilon = (1 - gamma) * abs(np.asarray(delta) - self.Q_init)
             top = np.matmul(np.transpose(G), act_np - act_base) - epsilon
             bot = np.matmul(np.transpose(G), G)
             lam = max(0, top / bot)
-            act = act + torch.as_tensor(lam * G, dtype=torch.float32).to(self.device)
+            act = act + torch.as_tensor(lam * G, dtype=torch.float32)
 
             return act.detach().cpu().numpy()
 
