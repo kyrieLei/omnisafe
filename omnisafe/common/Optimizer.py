@@ -16,7 +16,7 @@ class New_optim(Optimizer):
             group.setdefault('nesterov', False)
 
     def step(self,inner, closure=None):
-        """Performs a single optimization step. Arguments: closure (callable, optional): A closure that reevaluates the model and returns the loss. """
+
         loss = None
         if closure is not None:
             loss = closure()

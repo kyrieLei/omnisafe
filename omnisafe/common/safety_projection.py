@@ -7,6 +7,22 @@ import torch.nn as nn
 EPS = 1e-8
 
 
+def discount_cumsum( x, discount):
+    """
+    input:
+        vector x,
+        [x0,
+         x1,
+         x2]
+
+    output:
+        [x0 + discount * x1 + discount^2 * x2,
+         x1 + discount * x2,
+         x2]
+    """
+    output=scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
+    return output[0]
+
 def combined_shape(length, shape=None):
     if shape is None:
         return (length,)
@@ -65,20 +81,7 @@ class C_Critic(nn.Module):
 
             return act.detach().cpu().numpy()
 
-    def discount_cumsum(self, x, discount):
-        """
-        input:
-            vector x,
-            [x0,
-             x1,
-             x2]
 
-        output:
-            [x0 + discount * x1 + discount^2 * x2,
-             x1 + discount * x2,
-             x2]
-        """
-        return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
 
 
 

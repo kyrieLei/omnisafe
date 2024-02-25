@@ -17,11 +17,12 @@
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
-from torch.distributions import Distribution, Normal
+from torch.distributions import Distribution
+import  numpy as np
 from omnisafe.models.base import Actor
 from omnisafe.typing import Activation, InitFunction, OmnisafeSpace
 from omnisafe.utils.model import build_mlp_network
+from torch.distributions import Normal
 
 
 # pylint: disable-next=too-many-instance-attributes
@@ -40,7 +41,6 @@ class MLPActor(Actor):
         weight_initialization_mode (InitFunction, optional): Weight initialization mode. Defaults to
             ``'kaiming_uniform'``.
     """
-
 
     def __init__(
         self,
@@ -61,13 +61,9 @@ class MLPActor(Actor):
             weight_initialization_mode=weight_initialization_mode,
         )
         self._noise: float = 0.1
-        self.mean: nn.Module = build_mlp_network(
-            sizes=[self._obs_dim, *self._hidden_sizes, self._act_dim],
-            activation=activation,
-            weight_initialization_mode=weight_initialization_mode,
-        )
-        self.log_std: nn.Parameter = nn.Parameter(torch.zeros(self._act_dim), requires_grad=True)
-        _current_dist: Normal
+        log_std = -0.5 * np.ones(self._act_dim, dtype=np.float32)
+        self.log_std = torch.nn.Parameter(torch.as_tensor(log_std))
+
 
     def predict(
         self,
@@ -104,9 +100,9 @@ class MLPActor(Actor):
         self._noise = noise
 
     def _distribution(self, obs: torch.Tensor) -> Distribution:
-        mean = self.mean(obs)
+        mu = self.net(obs)
         std = torch.exp(self.log_std)
-        return Normal(mean, std)
+        return Normal(mu, std)
 
     def forward(self, obs: torch.Tensor) -> Distribution:
         """Forward method implementation.
@@ -128,9 +124,12 @@ class MLPActor(Actor):
         Raises:
             NotImplementedError: The method is not implemented.
         """
-        return self._current_dist.log_prob(act).sum(axis=-1)
+        return Normal.log_prob(act).sum(axis=-1)
 
     @property
     def std(self) -> float:
         """Standard deviation of the distribution."""
         return self._noise
+
+
+

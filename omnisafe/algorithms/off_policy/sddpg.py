@@ -16,10 +16,7 @@ from omnisafe.common.Optimizer import New_optim
 from omnisafe.common.buffer import VectorOffPolicyBuffer
 from omnisafe.common.logger import Logger
 from omnisafe.models.actor_critic.constraint_actor_q_critic import ConstraintActorQCritic
-from omnisafe.common.safety_projection import C_Critic
-
-
-
+from omnisafe.common.safety_projection import C_Critic, discount_cumsum
 
 
 @registry.register
@@ -348,7 +345,10 @@ class SDDPG(BaseAlgo):
         )
 
     def auto_grad(self,objective,net,to_numpy=True):
-        grad = torch.autograd.grad(objective,net)
+        print(objective)
+        print(net)
+        grad = torch.autograd.grad(objective,net,allow_unused=True)
+        print(grad)
         if to_numpy:
             return torch.cat([val.flatten() for val in grad], axis=0).detach().cpu().numpy()
         else:
@@ -356,9 +356,9 @@ class SDDPG(BaseAlgo):
 
     def auto_hession_x(self,objective, net, x):
 
-        jacob = self.auto_grad(objective,net,to_numpy=False)
+        jacob = self.auto_grad(objective,net,to_numpy=False,allow_unused=True)
 
-        return self.auto_grad(torch.dot(jacob, x),net, to_numpy=True)
+        return self.auto_grad(torch.dot(jacob, x),net, to_numpy=True,allow_unused=True)
     def conjugate_gradient(self,Ax, b, cg_iters=100):
         EPS=1e-8
         x = np.zeros_like(b)
@@ -392,8 +392,16 @@ class SDDPG(BaseAlgo):
         Q = self._actor_critic.reward_critic(obs,action)[0]
         pi=self._actor_critic.actor(obs)
         logp=self._actor_critic.actor.log_prob(act)
-        grad_Q_d=C_Critic.discount_cumsum(self.auto_grad(Q_d*logp,pi),self.self._cfgs.algo_cfgs.gamma)
-        grad_Q=C_Critic.discount_cumsum(self.auto_grad(Q*logp,pi),self.self._cfgs.algo_cfgs.gamma)
+        self._actor_critic.actor.zero_grad()
+        q_d=(logp*Q_d).mean().item()
+        q=(logp*Q).mean().item()
+        q_d_tensor = torch.tensor([q_d], requires_grad=True)
+        q_tensor = torch.tensor([q], requires_grad=True)
+
+        grad_q_d=self.auto_grad(q_d_tensor, self._actor_critic.actor.parameters())
+        grad_q = self.auto_grad(q_tensor.item(), self._actor_critic.actor.parameters())
+        grad_Q_d=discount_cumsum(grad_q_d, self._cfgs.algo_cfgs.gamma)
+        grad_Q=discount_cumsum(grad_q, self._cfgs.algo_cfgs.gamma)
 
 
         epislon = (1 - self._cfgs.algo_cfgs.gamma)(d0 - Q_d)
