@@ -45,7 +45,7 @@ def count_vars(module):
 
 class C_Critic(nn.Module):
 
-    def __init__(self, obs_dim, act_dim, hidden_sizes, activation, device):
+    def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
         super().__init__()
         self.c_net = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
 

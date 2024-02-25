@@ -41,7 +41,7 @@ defaults:
     # The size of replay buffer
     size: 1000000
     # The size of batch
-    batch_size: 256
+    batch_size: 1
     # normalize reward
     reward_normalize: False
     # normalize cost
@@ -68,6 +68,8 @@ defaults:
     exploration_noise: 0.1
     # use cost
     use_cost: False
+    # entropy coefficient
+    entropy_coef: 0.02
   # logger configurations
   logger_cfgs:
     # use wandb for logging
@@ -87,13 +89,13 @@ defaults:
     # weight initialization mode
     weight_initialization_mode: "kaiming_uniform"
     # actor type
-    actor_type: mlp
+    actor_type: gaussian_learning
     # linear learning rate decay
     linear_lr_decay: False
     # Configuration of Actor network
     actor:
       # Size of hidden layers
-      hidden_sizes: [256, 256]
+      hidden_sizes: [1, 1]
       # Activation function
       activation: relu
       # The learning rate of Actor network
@@ -103,7 +105,7 @@ defaults:
       # The number of critic networks
       num_critics: 1
       # Size of hidden layers
-      hidden_sizes: [256, 256]
+      hidden_sizes: [1, 1]
       # Activation function
       activation: relu
       # The learning rate of Critic network

@@ -81,6 +81,7 @@ class MLPActor(Actor):
             obs (torch.Tensor): Observation from environments.
             deterministic (bool, optional): Whether to use deterministic policy. Defaults to True.
         """
+        self._current_dist = self._distribution(obs)
         action = self.net(obs)
         if deterministic:
             return action
@@ -115,7 +116,7 @@ class MLPActor(Actor):
         """
         return self._distribution(obs)
 
-    def log_prob(self, act: torch.Tensor) -> torch.Tensor:
+    def log_prob(self,act: torch.Tensor) -> torch.Tensor:
         """Log probability of the action.
 
         Args:
@@ -124,7 +125,7 @@ class MLPActor(Actor):
         Raises:
             NotImplementedError: The method is not implemented.
         """
-        return Normal.log_prob(act).sum(axis=-1)
+        return self._current_dist.log_prob(act).sum(axis=-1)
 
     @property
     def std(self) -> float:

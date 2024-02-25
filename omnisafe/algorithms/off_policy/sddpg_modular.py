@@ -17,7 +17,8 @@ class SDDPG_Modular(SDDPG):
         self,
         obs
     ):
-        loss, inner= self._loss_pi(obs)
+        loss= self._loss_pi(obs)
+        inner = self.auto_grad(Q, self._actor_critic.actor.parameters(), retain_graph=True)
         self._actor_critic.actor_optimizer.zero_grad()
         loss.backward()
         if self._cfgs.algo_cfgs.max_grad_norm:
@@ -39,14 +40,14 @@ class SDDPG_Modular(SDDPG):
 
 
         action = self._actor_critic.actor.predict(obs, deterministic=True)
-        Q_d = self._actor_critic.cost_critic(obs, action)[0]
+
         Q = self._actor_critic.reward_critic(obs,action)[0]
 
 
         pi = torch.exp(self._actor_critic.actor.log_prob(action))
-        inner = self.auto_grad(Q,action)
+
         loss=pi
 
-        return loss,inner
+        return loss
 
 

@@ -1,5 +1,4 @@
 
-
 from __future__ import annotations
 
 import time
@@ -17,6 +16,7 @@ from omnisafe.common.buffer import VectorOffPolicyBuffer
 from omnisafe.common.logger import Logger
 from omnisafe.models.actor_critic.constraint_actor_q_critic import ConstraintActorQCritic
 from omnisafe.common.safety_projection import C_Critic, discount_cumsum
+from hessian import hessian
 
 
 @registry.register
@@ -57,13 +57,20 @@ class SDDPG(BaseAlgo):
     def _init_model(self) -> None:
 
         self._cfgs.model_cfgs.critic['num_critics'] = 1
-
+        self._cfgs.algo_cfgs.gamma=0.99
         self._actor_critic = ConstraintActorQCritic(
             obs_space=self._env.observation_space,
             act_space=self._env.action_space,
             model_cfgs=self._cfgs.model_cfgs,
             epochs=self._epochs,
         )
+        self.safe_layer=C_Critic(
+            obs_dim=self._env.observation_space.shape[0],
+            act_dim=self._env.action_space.shape[0],
+            hidden_sizes=self._cfgs.model_cfgs.hidden_sizes,
+            activation=self._cfgs.model_cfgs.activation
+        )
+
 
 
     def _init(self) -> None:
@@ -230,8 +237,8 @@ class SDDPG(BaseAlgo):
                 data['next_obs'],
             )
 
-            if self._update_count>2:
-                act = C_Critic.safety_correction(obs,act)
+            # if self._update_count>=2:
+            #     act = self.safe_layer.safety_correction(obs,act)
 
 
 
@@ -329,7 +336,17 @@ class SDDPG(BaseAlgo):
         - Log useful information.
         """
 
-        loss, inner= self._loss_pi(obs,act)
+        loss,lambda_star= self._loss_pi(obs,act)
+
+        self._actor_critic.actor_optimizer.zero_grad()
+
+        action = self._actor_critic.actor.predict(obs, deterministic=True)
+
+        Q = self._actor_critic.reward_critic(obs, action)[0]
+        inner = self.auto_grad(Q.mean(), self._actor_critic.actor.parameters(),retain_graph=True)
+        Q_d = self._actor_critic.cost_critic(obs, action)[0]
+        inner += lambda_star.detach().numpy() * self.auto_grad(Q_d.mean(), self._actor_critic.actor.parameters(),retain_graph=True)
+
         self._actor_critic.actor_optimizer.zero_grad()
         loss.backward()
         if self._cfgs.algo_cfgs.max_grad_norm:
@@ -344,21 +361,22 @@ class SDDPG(BaseAlgo):
             },
         )
 
-    def auto_grad(self,objective,net,to_numpy=True):
-        print(objective)
-        print(net)
-        grad = torch.autograd.grad(objective,net,allow_unused=True)
-        print(grad)
+    def auto_grad(self,objective,net,to_numpy=True,retain_graph=False):
+
+        grad = torch.autograd.grad(objective,net,allow_unused=True,retain_graph=retain_graph)
+
         if to_numpy:
-            return torch.cat([val.flatten() for val in grad], axis=0).detach().cpu().numpy()
+            return torch.cat([val.flatten() if val is not None else torch.zeros(1) for val in grad], axis=0).detach().cpu().numpy()
         else:
-            return torch.cat([val.flatten() for val in grad], axis=0)
+
+            return torch.cat([val.flatten() if val is not None else torch.zeros(1) for val in grad], axis=0)
 
     def auto_hession_x(self,objective, net, x):
 
-        jacob = self.auto_grad(objective,net,to_numpy=False,allow_unused=True)
+        jacob = self.auto_grad(objective,net,to_numpy=False,retain_graph=True)
 
-        return self.auto_grad(torch.dot(jacob, x),net, to_numpy=True,allow_unused=True)
+        return self.auto_grad(torch.dot(jacob, x), net, to_numpy=True)
+
     def conjugate_gradient(self,Ax, b, cg_iters=100):
         EPS=1e-8
         x = np.zeros_like(b)
@@ -392,33 +410,46 @@ class SDDPG(BaseAlgo):
         Q = self._actor_critic.reward_critic(obs,action)[0]
         pi=self._actor_critic.actor(obs)
         logp=self._actor_critic.actor.log_prob(act)
-        self._actor_critic.actor.zero_grad()
-        q_d=(logp*Q_d).mean().item()
-        q=(logp*Q).mean().item()
-        q_d_tensor = torch.tensor([q_d], requires_grad=True)
-        q_tensor = torch.tensor([q], requires_grad=True)
 
-        grad_q_d=self.auto_grad(q_d_tensor, self._actor_critic.actor.parameters())
-        grad_q = self.auto_grad(q_tensor.item(), self._actor_critic.actor.parameters())
+        grad_q_d = self.auto_grad((logp*Q_d).mean(),self._actor_critic.actor.parameters(),retain_graph=True)
+
+        action = self._actor_critic.actor.predict(obs, deterministic=True)
+        Q_d = self._actor_critic.cost_critic(obs, action)[0]
+        Q = self._actor_critic.reward_critic(obs, action)[0]
+        pi = self._actor_critic.actor(obs)
+        logp = self._actor_critic.actor.log_prob(act)
+
+        grad_q = self.auto_grad((logp*Q).mean(),self._actor_critic.actor.parameters(),retain_graph=True)
+
         grad_Q_d=discount_cumsum(grad_q_d, self._cfgs.algo_cfgs.gamma)
         grad_Q=discount_cumsum(grad_q, self._cfgs.algo_cfgs.gamma)
 
+        epislon = (1 - self._cfgs.algo_cfgs.gamma)*(d0 - Q_d.mean())
+        beta=self._cfgs.algo_cfgs.polyak
 
-        epislon = (1 - self._cfgs.algo_cfgs.gamma)(d0 - Q_d)
-        beta=self._cfgs.algo_cfgs.entropy_coef
-        entropy = pi.entropy().mean().item()
+        pi = self._actor_critic.actor(obs)
+        entropy = pi.entropy().mean()
 
-
-        Hx = lambda x: self.auto_hession_x(entropy, self._actor_critic.actor.parameters(), torch.FloatTensor(x))
-        x_hat = self.conjugate_gradient(Hx, grad_Q_d)
-
-        s = grad_Q_d.T @ x_hat
-        lambda_star = (-beta*epislon-grad_Q.T@x_hat)/(s+EPS)
-        inner = (self.auto_grad(Q,action)+lambda_star*self.auto_grad(Q_d,action))
-        loss=torch.exp(self._actor_critic.actor(obs))
+        #Hx = lambda x: self.auto_hession_x(entropy, self._actor_critic.actor.parameters(), x)
+        #x_hat = self.conjugate_gradient(Hx, grad_Q_d)
 
 
-        return loss,inner
+        #s = grad_Q_d.T @ Hx(x_hat)
+        #lambda_star = (-beta*epislon-grad_Q.T@Hx(x_hat))/(s+EPS)
+        logp = self._actor_critic.actor.log_prob(act)
+        #Hx=self.auto_hession_x(entropy, self._actor_critic.actor.parameters(),entropy)
+        Hx=hessian(entropy,self._actor_critic.actor.parameters(),allow_unused=True)
+        Hx_inverse=np.linalg.pinv(Hx).mean().astype(np.float64)
+
+        s=grad_Q_d.T *Hx_inverse *grad_Q_d
+        lambda_star = (-beta * epislon - grad_Q.T * Hx_inverse *grad_Q_d ) / (s + EPS)
+
+
+
+        loss=torch.exp(logp)
+
+
+        return loss,lambda_star
 
     def _log_when_not_update(self) -> None:
         """Log default value when not update."""

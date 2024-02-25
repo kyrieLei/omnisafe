@@ -21,7 +21,7 @@ import omnisafe
 
 # Just fill your experiment's log directory in here.
 # Such as: ~/omnisafe/examples/runs/PPOLag-{SafetyPointGoal1-v0}/seed-000-2023-03-07-20-25-48
-LOG_DIR = '/Users/kyrie/Desktop/omnisafe/examples/runs/DDPG-{SafetyPointGoal1-v0}/seed-000-2024-02-24-20-07-58'
+LOG_DIR = '/Users/kyrie/Desktop/omnisafe/examples/runs/SDDPG-{SafetyPointGoal1-v0}/seed-000-2024-02-25-18-13-10'
 if __name__ == '__main__':
     evaluator = omnisafe.Evaluator(render_mode='rgb_array')
     scan_dir = os.scandir(os.path.join(LOG_DIR, 'torch_save'))
