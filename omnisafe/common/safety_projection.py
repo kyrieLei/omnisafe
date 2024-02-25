@@ -3,6 +3,7 @@ import scipy.signal
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 EPS = 1e-8
 
@@ -29,7 +30,7 @@ def combined_shape(length, shape=None):
     return (length, shape) if np.isscalar(shape) else (length, *shape)
 
 
-def mlp( sizes, activation, output_activation=nn.Identity):
+def mlp(sizes, activation=nn.Tanh, output_activation=nn.Identity):
     layers = []
     for j in range(len(sizes) - 1):
         act = activation if j < len(sizes) - 2 else output_activation
@@ -45,7 +46,7 @@ def count_vars(module):
 
 class C_Critic(nn.Module):
 
-    def __init__(self, obs_dim, act_dim, hidden_sizes, activation):
+    def __init__(self, obs_dim, act_dim, hidden_sizes, activation=nn.ReLU):
         super().__init__()
         self.c_net = mlp([obs_dim + act_dim] + list(hidden_sizes) + [1], activation, output_activation=nn.Softplus)
 
@@ -55,8 +56,10 @@ class C_Critic(nn.Module):
 
     # Get the corrected action, this may cause some problems in discrete observation space
     def safety_correction(self, obs, act, delta=0.):
-        obs = torch.as_tensor(obs, dtype=torch.float32).to(self.device)
-        act = torch.as_tensor(act, dtype=torch.float32).to(self.device)
+        obs = torch.as_tensor(obs, dtype=torch.float32)
+        act = torch.as_tensor(act, dtype=torch.float32)
+        print(obs.shape)
+        print(act.shape)
         pred = self.forward(torch.cat((obs, act)))
 
         act_0 = torch.zeros_like(act)

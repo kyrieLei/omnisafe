@@ -14,6 +14,7 @@ from omnisafe.algorithms.base_algo import BaseAlgo
 from omnisafe.common.Optimizer import New_optim
 from omnisafe.common.buffer import VectorOffPolicyBuffer
 from omnisafe.common.logger import Logger
+from omnisafe.common.safe_explorer.safety_layer.safety_layer import SafetyLayer
 from omnisafe.models.actor_critic.constraint_actor_q_critic import ConstraintActorQCritic
 from omnisafe.common.safety_projection import C_Critic, discount_cumsum
 from hessian import hessian
@@ -24,7 +25,7 @@ class SDDPG(BaseAlgo):
 
     _epoch: int
 
-    def _init_env(self) -> None:
+    def _init_env(self):
 
         self._env: OffPolicyAdapter = OffPolicyAdapter(
             self._env_id,
@@ -32,6 +33,7 @@ class SDDPG(BaseAlgo):
             self._seed,
             self._cfgs,
         )
+
         assert (
             self._cfgs.algo_cfgs.steps_per_epoch % self._cfgs.train_cfgs.vector_env_nums == 0
         ), 'The number of steps per epoch is not divisible by the number of environments.'
@@ -64,12 +66,8 @@ class SDDPG(BaseAlgo):
             model_cfgs=self._cfgs.model_cfgs,
             epochs=self._epochs,
         )
-        self.safe_layer=C_Critic(
-            obs_dim=self._env.observation_space.shape[0],
-            act_dim=self._env.action_space.shape[0],
-            hidden_sizes=self._cfgs.model_cfgs.hidden_sizes,
-            activation=self._cfgs.model_cfgs.activation
-        )
+
+
 
 
 
@@ -83,6 +81,8 @@ class SDDPG(BaseAlgo):
             num_envs=self._cfgs.train_cfgs.vector_env_nums,
             device=self._device,
         )
+
+
         self._actor_critic.actor_optimizer=New_optim(self._actor_critic.actor.parameters(), lr=0.0003)
 
     def _init_log(self) -> None:
@@ -237,9 +237,13 @@ class SDDPG(BaseAlgo):
                 data['next_obs'],
             )
 
-            # if self._update_count>=2:
-            #     act = self.safe_layer.safety_correction(obs,act)
 
+
+            safety_layer = SafetyLayer(self._env,self._buf)
+            safety_layer.train()
+
+            if self._update_count>=2:
+                act = safety_layer.get_safe_action(obs,act,c=10)
 
 
             self._update_reward_critic(obs, act, reward, done, next_obs)
